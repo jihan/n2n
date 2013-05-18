@@ -1,16 +1,17 @@
-var n2n = require("./NotificationCenter");
+var n2n = require("./n2n");
 var dgram = require("dgram");
 
-var message = new Buffer("Hello N2N ~!!");
-var client = dgram.createSocket("udp4");
+var testMessage = new Buffer("Hello N2N ~!!");
+var client = n2n.createSocket();
+client.init();
 
 var nc = n2n.createNotificationCenter();
 var ntf = "send message notification";
 
 nc.register(ntf, false,
 	function(arg) {
-		console.log("time to send message " + Date.now() );
-		client.send(message, 0, message.length, 7119, "localhost");
+		console.log("time to send message [" + Date.now() +"]" );
+		client.send(testMessage, null);
 	},
 	{} // empty argument for handler
 );
@@ -25,7 +26,9 @@ setInterval(
 
 setTimeout(
 	function() {
-		client.close();
+		var closeMessage = new Buffer("close");
+		client.send(closeMessage, null);
+		);
 	},
 	60000
 );

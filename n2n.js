@@ -32,21 +32,22 @@ var n2n = (function(dgram) {
 			center.post = function(notification) {
 				var index = keys.indexOf(notification);
 				if (index >= 0) {
-					var handler  = vals[index];
-					var argument = args[index];
+					var handler    = vals[index];
+					var argument   = args[index];
 					var willRemove = flag[index];
 
 					if (willRemove == true) {
 						keys.splice(index, 1);
+						flag.splice(index, 1);
 						vals.splice(index, 1);
 						args.splice(index, 1);
-						flag.splice(index, 1);
 					};
 
-					if (typeof handler === 'function') {
+					if (typeof handler === "function") {
 						return handler(argument);
 					};
 				};
+				console.log("NotificationCenter.post() did nothing.");
 			}; // end of center.post()
 
 			return center;
@@ -55,59 +56,106 @@ var n2n = (function(dgram) {
 	} // end of var CNotificationCenter
 	;
 
+	/* A FULL DUPLEX asynchronous socket, it autonomously decides which ports
+	 * will be used for listening and for sending message individually.
+	 *
+	*/
 	var CSocket = {
-		maxServerLife: 4194303, // max life time in millisecond for a server, 4194303 = 4096*1024
-		minServerLife: 3600000, // 3600 seconds
+		maxStableTime: 4194303, // in ms, 4194303 = 4096*1024 - 1
+		minStableTime: 3145728, // 3/4 of max life
+
+		events: ["start", "change", "close", "error", "message"],
 
 		create: function() {
 			var socket = {};
 
 			// private fields
 			var m_notifCenter = CNotificationCenter.create();
-			
+			var m_serverSocket;
+			var m_clientSocket;
+			var m_userInfo;
 
 			// private methods
 			var handleSocketClose = function(arg) {
 				console.log(arg.socket.address() + " is closing.");
 				arg.socket.close();
-			};
+			}; // end of handleSocketClose
+
 
 			var handleSocketExpire = function(arg) {
-				console.log(arg.socket.address() + " has expired.");
+				var soc = arg.socket;
+				var addr = soc.address();
+				console.log(addr + " has expired.");
 
-				if (!m_serverCloseTimer) {
-					clearTimeout(m_serverCloseTimer);
+				var socketCloseNotification = "InternalSocketClose" + addr;
+				var AUTO_REMOVE = true;
+
+				m_notifCenter.register(
+					socketCloseNotification,
+					AUTO_REMOVE,
+					handleSocketClose,
+					arg
+				);
+				// it is sure here that soc can expire.
+				setTimeout(
+					function() {
+						m_notifCenter.post(socketCloseNotification);
+					},
+					maxStableTime - minStableTime
+				);
+
+				if (soc === m_activeServerSocket) {
+					// m_activeServerSocket = null;
 				}
-				m_serverCloseTimer = setTimeout(handleServerClose, maxServerLife - minServerLife);
-			};
+			}; // end of handleSocketExpire
 
-			var dgramSocket = function(port) {
-				var SOCKET_EXPIRE_NOTIFICATION = "n2n.Socket._willExpire";
+
+			var createDgramSocket = function(port, canExpire) {
 				var AUTO_REMOVE = true;
 				var soc = dgram.createSocket("udp4");
-				var arg = { socket: s };
+				var arg = {
+					socket: soc,
+					expire: canExpire
+				};
 
-				soc.port = port;
 				soc.bind(port);
-				m_notifCenter.register(SOCKET_EXPIRE_NOTIFICATION, AUTO_REMOVE, handleSocketExpire, arg);
-				s.timer = setTimeout(
-					function() { m_notifCenter.post(SOCKET_EXPIRE_NOTIFICATION); },
-					minServerLife
+
+				var socketExpireNotification = "InternalSocketExpire" + port;
+				m_notifCenter.register(
+					socketExpireNotification,
+					AUTO_REMOVE,
+					handleSocketExpire,
+					arg
 				);
-				return s;
+
+
+				if (canExpire === true) {
+					setTimeout(
+						function() {
+							m_notifCenter.post(socketExpireNotification);
+						},
+						minServerLife
+					);
+				};
+				return soc;
 			};
 
+
 			socket.init = function() {
-				var serverSocket = dgramSocket(7119);
+				m_serverSocket = createDgramSocket(7119, false);
+				m_clientSocket = createDgramSocket(5233, false);
 			};
 
 			socket.on = function(eventName, handler) {
 			};
 
-			socket.send = function(byteArray, otherNode, handler) {
+			socket.send = function(msg, otherNode) {
+				m_clientSocket.send(msg, 0, msg.length, 7119, "localhost")
 			};
 
 			socket.close = function() {
+				m_serverPort.close();
+				m_clientPort.close();
 			};
 
 			socket.start = function() {
@@ -139,7 +187,8 @@ var n2n = (function(dgram) {
 	;
 
 	return {
-		createNotificationCenter: function() { return CNotificationCenter.create(); }
+		createNotificationCenter: function() { return CNotificationCenter.create(); },
+		createSocket: function() { return CSocket.create(); }
 	};
 
 })(DatagramSocket); // end of var n2n

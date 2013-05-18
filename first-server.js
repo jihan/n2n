@@ -4,7 +4,11 @@ var dgram = require('dgram');
 var server = dgram.createSocket('udp4');
 server.on("message",
 	function(msg, rinfo) {
-		console.log("from: " + rinfo.address + ":" + rinfo.port + "\nmsg: " + msg + "[" + Date.now() + "]" );
+		var msgStr = msg.toString();
+		console.log("from: %s:%d msg: %s [%d]", rinfo.address, rinfo.port, msgStr, Date.now());
+		if (msgStr.indexOf("close") !== -1) {
+			server.close();
+		}
 	}
 );
 
